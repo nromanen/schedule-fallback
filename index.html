@@ -1,0 +1,891 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Розклад занять — резервна копія</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --surface: #fff; --text: #1f2328; --muted: #656d76; --line: #dde1e6;
+    --head: #eef0f3; --accent: #2563eb; --today: #f0f5ff;
+    --lecture: #2563eb; --practical: #16a34a; --laboratory: #d97706; --exam: #dc2626; --credit: #0891b2; --other: #6b7280;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); }
+  [hidden] { display: none !important; }
+
+  /* ---------- header ---------- */
+  header { background: var(--surface); border-bottom: 1px solid var(--line); padding: 10px 16px; }
+  .notice { background: #fff4e5; border: 1px solid #f2c27c; color: #7a4a00; padding: 6px 10px; border-radius: 6px; margin-bottom: 8px; font-size: 13px; }
+  .title-row { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: baseline; }
+  h1 { font-size: 18px; margin: 0; }
+  .back { color: var(--accent); text-decoration: none; }
+  .back:hover { text-decoration: underline; }
+  .sem-title { font-weight: 600; }
+  .sub { color: var(--muted); }
+  .week { font-weight: 600; }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
+  .tabs { display: flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .tabs button { border: 0; background: var(--surface); padding: 6px 12px; cursor: pointer; font: inherit; color: inherit; }
+  .tabs button + button { border-left: 1px solid var(--line); }
+  .tabs button.active { background: var(--accent); color: #fff; }
+  .tabs.parity { display: inline-flex; font-weight: 400; }
+  .tabs.parity button { padding: 3px 10px; }
+  select, input[type=search] { font: inherit; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: inherit; max-width: 100%; }
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+  .chips button { font: inherit; border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 3px 10px; cursor: pointer; color: inherit; }
+  .chips button.active { background: var(--text); color: #fff; border-color: var(--text); }
+
+  /* ---------- page body ---------- */
+  main { padding: 12px 16px 24px; }
+  .view-title { font-size: 16px; font-weight: 600; margin: 0 0 8px; }
+  .loader { max-width: 560px; margin: 40px auto; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 20px; }
+
+  /* semester list (start page) */
+  .sem-list { max-width: 640px; margin: 16px auto; }
+  .sem-list h2 { font-size: 16px; margin: 0 0 10px; }
+  .sem-item { display: flex; flex-wrap: wrap; gap: 2px 12px; align-items: baseline; padding: 12px 14px; margin-bottom: 8px;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 8px; color: inherit; text-decoration: none; }
+  .sem-item:hover { border-color: var(--accent); }
+  .sem-item .name { font-weight: 600; flex: 1 1 auto; }
+  .sem-item .status { font-size: 12px; color: var(--muted); }
+  .sem-item .status.running { color: var(--practical); font-weight: 600; }
+
+  /* ---------- tables ---------- */
+  .scroll { overflow: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; max-height: calc(100vh - var(--hdr, 140px) - 80px); }
+  table { border-collapse: separate; border-spacing: 0; }
+  th, td { border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 4px; vertical-align: top; }
+  thead th { position: sticky; top: 0; z-index: 3; background: var(--head); font-weight: 600; white-space: nowrap; padding: 6px 8px; }
+  thead th.next { color: var(--muted); font-weight: 400; }
+  .day { background: var(--head); font-weight: 600; white-space: nowrap; }
+  .pair { white-space: nowrap; color: var(--muted); font-size: 12px; text-align: center; background: var(--surface); }
+  .pair b { display: block; color: var(--text); font-size: 14px; }
+  .no-lessons { color: var(--muted); font-style: italic; }
+  td.slot { padding: 0; }
+  td.empty { background: repeating-linear-gradient(135deg, transparent 0 6px, #fafbfc 6px 12px); }
+  /* today; muted = the other (next) week, or past days of a dated semester */
+  tr.today .pair, tr.today .day { background: var(--today); }
+  td.slot.next > *, tr.past td.slot > * { opacity: .45; }
+  tr.past .day, tr.past .pair { color: var(--muted); }
+
+  /* group / teacher table: one column per lane (odd | even, or a single one) */
+  table.lane-table { width: 100%; }
+  .lane-table td.slot { width: 50%; min-width: 170px; }
+  .lane-table.one-lane td.slot { width: 100%; } /* day + pair columns shrink to content */
+  @media (max-width: 700px) {
+    header, main { padding-left: 10px; padding-right: 10px; }
+    .lane-table td.slot { width: auto; min-width: 0; }
+    .lane-table .day { font-size: 12px; }
+  }
+
+  /* full view: sticky day / pair / week-label columns */
+  table.full { min-width: 100%; }
+  .full th.c-day, .full td.day { position: sticky; left: 0; z-index: 2; width: 34px; min-width: 34px; max-width: 34px; padding: 6px 2px; }
+  .full th.c-pair, .full td.pair { position: sticky; left: 34px; z-index: 2; width: 66px; min-width: 66px; max-width: 66px; }
+  .full th.c-wk, .full td.wk-label { position: sticky; left: 100px; z-index: 2; width: 22px; min-width: 22px; max-width: 22px; padding: 4px 0; }
+  .full thead th.c-day, .full thead th.c-pair, .full thead th.c-wk { z-index: 4; }
+  .full .vert { writing-mode: vertical-rl; transform: rotate(180deg); margin: 0 auto; }
+  .full td.wk-label { background: var(--surface); color: var(--muted); font-size: 11px; text-align: center; vertical-align: middle; }
+  .full td.wk-label.current { color: var(--text); font-weight: 600; }
+  .full td.slot { min-width: 160px; }
+  .full thead th a { color: inherit; text-decoration: none; }
+  .full thead th a:hover { text-decoration: underline; }
+  /* a period with two lanes = two rows; a dashed line separates odd from even */
+  .full td.lane-odd, .full tr.lane-first td.wk-label { border-bottom: 1px dashed var(--line); }
+
+  /* ---------- lesson card: fills its cell, the table grid is the only border ---------- */
+  .card { position: relative; background: var(--surface); border-left: 4px solid var(--c, var(--other)); padding: 6px 8px; }
+  .card + .card { border-top: 1px solid var(--line); }
+  .card.dim { opacity: .2; }
+  .card.hit { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .t-lecture { --c: var(--lecture); } .t-practical { --c: var(--practical); } .t-laboratory { --c: var(--laboratory); }
+  .t-exam { --c: var(--exam); } .t-credit { --c: var(--credit); }
+  .subj { font-weight: 600; }
+  .badge { display: inline-block; font-size: 11px; color: var(--c, var(--other)); border: 1px solid currentColor; border-radius: 4px; padding: 0 4px; margin: 2px 0; }
+  .who, .room { font-size: 12px; color: var(--muted); }
+  .who a { color: inherit; }
+  .meet { text-decoration: none; margin-left: 2px; }
+  /* elective: corner fold in the top-right corner */
+  .card.elective::after { content: ""; position: absolute; top: 0; right: 0; border-style: solid; border-width: 0 14px 14px 0; border-color: transparent var(--c, var(--other)) transparent transparent; }
+
+  /* ---------- legend ---------- */
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 10px; color: var(--muted); font-size: 12px; align-items: center; }
+  .legend .sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -2px; margin-right: 4px; background: var(--c); }
+  .legend .fold { display: inline-block; width: 16px; height: 16px; border: 1px solid var(--line); border-radius: 3px; position: relative; vertical-align: -3px; margin-right: 4px; background: var(--surface); }
+  .legend .fold::after { content: ""; position: absolute; top: -1px; right: -1px; border-style: solid; border-width: 0 8px 8px 0; border-color: transparent var(--muted) transparent transparent; }
+  .legend .mutedsw { background: var(--muted); opacity: .45; }
+</style>
+</head>
+<body>
+<header id="hdr">
+  <div class="notice">Основний сайт розкладу тимчасово недоступний. Це резервна копія<span id="snapshot"></span>.</div>
+  <div class="title-row">
+    <h1>Розклад занять</h1>
+    <a class="back" id="back" href="./" hidden>← Усі семестри</a>
+    <span class="sem-title" id="semTitle"></span>
+    <span class="sub" id="semDates"></span>
+    <span class="week" id="week"></span>
+  </div>
+  <div class="controls" id="controls" hidden>
+    <div class="tabs" id="tabs">
+      <button data-view="full">Загальний</button>
+      <button data-view="group">Група</button>
+      <button data-view="teacher">Викладач</button>
+    </div>
+    <select id="groupSelect" aria-label="Група"></select>
+    <select id="teacherSelect" aria-label="Викладач"></select>
+    <div class="chips" id="courseChips"></div>
+    <input type="search" id="search" placeholder="Пошук: предмет або викладач" size="28">
+  </div>
+</header>
+<main id="main"></main>
+
+<script>
+'use strict';
+
+/* =====================================================================
+   Data files next to this page:
+     semesters.json   - semester list as returned by the app (disable:false ones are used)
+     full-<id>.json   - full schedule of one semester, in either format:
+                        week format: {semester, schedule[].days[].classes[].weeks.{odd,even}}
+                        date format: {semester, dates[], periods[], groups[], items[]}  (scheduledByDate)
+   Without semesters.json a single full.json is shown (one-semester mode).
+   ===================================================================== */
+const SEMESTERS_URL = 'semesters.json';
+const fullUrl = (id) => `full-${id}.json`;
+const SINGLE_URL = 'full.json';
+// A week-format semester this short is shown by concrete dates (e.g. a session)
+const SHORT_SEMESTER_DAYS = 14;
+
+const LESSON_TYPES = {
+  LECTURE:    { label: 'Лекція',      cls: 'lecture' },
+  PRACTICAL:  { label: 'Практична',   cls: 'practical' },
+  LABORATORY: { label: 'Лабораторна', cls: 'laboratory' },
+  EXAM:       { label: 'Екзамен',     cls: 'exam' },
+  CREDIT:     { label: 'Залік',       cls: 'credit' },
+};
+const DAY_NAMES = {
+  MONDAY: 'Понеділок', TUESDAY: 'Вівторок', WEDNESDAY: 'Середа', THURSDAY: 'Четвер',
+  FRIDAY: 'П’ятниця', SATURDAY: 'Субота', SUNDAY: 'Неділя',
+};
+const DOW_BY_JS_DAY = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
+const POSITION_SHORT = {
+  'професор': 'проф.', 'доцент': 'доц.', 'асистент': 'ас.',
+  'старший викладач': 'ст. викл.', 'викладач': 'викл.',
+};
+// A "lane" is one variant of a slot: odd/even week, or the only one in a dated schedule
+const WEEK_LANES = ['odd', 'even'];
+const DATE_LANES = ['one'];
+const LANE_TITLES = { odd: 'Непарний тиждень', even: 'Парний тиждень', one: 'Заняття' };
+const LANE_LABELS = { odd: 'непарний', even: 'парний' };
+
+const NARROW = window.matchMedia('(max-width: 700px)');
+
+const state = { semesterId: null, view: 'full', groupId: null, teacherId: null, course: 'all', query: '', parity: 'odd' };
+let semesterList = [];      // semesters known to the page (disable:false)
+const loaded = new Map();   // semesterId -> {data, snapshot}
+let model = null;           // the semester being shown, see buildModel()
+
+/* ---------- small helpers ---------- */
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g,
+  (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+// API dates are dd/MM/yyyy, date-format items use yyyy-mm-dd
+function parseApiDate(s) {
+  const [d, m, y] = s.split('/').map(Number);
+  return new Date(y, m - 1, d);
+}
+const isoToDate = (iso) => new Date(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10));
+const toIso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const ddmm = (iso) => `${iso.slice(8, 10)}.${iso.slice(5, 7)}`;
+const apiDatesText = (s) => `${s.startDay.replaceAll('/', '.')} – ${s.endDay.replaceAll('/', '.')}`;
+const DAY_MS = 864e5;
+
+function startOfToday() {
+  const n = new Date();
+  return new Date(n.getFullYear(), n.getMonth(), n.getDate());
+}
+
+function mondayOf(date) {
+  const r = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  r.setDate(r.getDate() - ((r.getDay() + 6) % 7));
+  return r;
+}
+
+// Same rule as the main app: week 1 starts on the Monday of startDay and is ODD
+function weekNumber(start, date) {
+  return Math.round((mondayOf(date) - mondayOf(start)) / (7 * DAY_MS)) + 1;
+}
+const parityOf = (weekNo) => (weekNo % 2 === 1 ? 'odd' : 'even');
+
+function isShortSemester(sem) {
+  return Math.round((parseApiDate(sem.endDay) - parseApiDate(sem.startDay)) / DAY_MS) <= SHORT_SEMESTER_DAYS;
+}
+
+const fullName = (t) => [t.surname, t.name, t.patronymic].map((s) => (s || '').trim()).filter(Boolean).join(' ');
+
+function shortName(t) {
+  const initials = [t.name, t.patronymic].map((s) => (s || '').trim()).filter(Boolean).map((s) => s[0] + '.').join(' ');
+  const pos = POSITION_SHORT[(t.position || '').trim().toLowerCase()] ?? (t.position || '');
+  return [pos, (t.surname || '').trim(), initials].filter(Boolean).join(' ');
+}
+
+function courseOf(title) {
+  const m = /^\d/.exec(title);
+  return m ? m[0] : 'other';
+}
+
+/* =====================================================================
+   Model: every data format is normalised into one shape
+     model.days         [{key, dow, iso}]  - week days (week mode) or concrete dates (date mode)
+     model.lanes        ['odd','even'] or ['one']
+     model.groupSlots   groupId -> Map("dayKey|periodId" -> {lane: lesson})
+     model.teachers     teacherId -> {teacher, slots: Map("dayKey|periodId" -> {lane: [lesson + group]})}
+   so that one renderer serves all of them.
+   ===================================================================== */
+
+function newModel(semester, periods, groups, lanes, days) {
+  return {
+    semester, periods, groups, lanes, days,
+    byDate: lanes === DATE_LANES,
+    groupSlots: new Map(groups.map((g) => [g.id, new Map()])),
+    teachers: new Map(),
+    presentTypes: new Set(),
+  };
+}
+
+function addLesson(m, group, dayKey, periodId, lane, lesson) {
+  if (!lesson) return;
+  const key = dayKey + '|' + periodId;
+  const slots = m.groupSlots.get(group.id);
+  if (!slots.has(key)) slots.set(key, {});
+  slots.get(key)[lane] = lesson;
+  m.presentTypes.add(lesson.lessonType);
+
+  const t = lesson.teacher;
+  if (!t) return;
+  if (!m.teachers.has(t.id)) m.teachers.set(t.id, { teacher: t, slots: new Map() });
+  const ts = m.teachers.get(t.id).slots;
+  if (!ts.has(key)) ts.set(key, {});
+  (ts.get(key)[lane] ||= []).push({ ...lesson, group });
+}
+
+// Column order follows the app's list (semester_groups / groups); groups only seen in the data are appended
+function orderGroups(listed, seen) {
+  const out = (listed || []).filter((g) => seen.has(g.id)).map((g) => seen.get(g.id));
+  for (const g of seen.values()) if (!out.includes(g)) out.push(g);
+  return out;
+}
+
+function dateDays(isoDates, dowByIso = new Map()) {
+  return isoDates.map((iso) => ({ key: iso, iso, dow: dowByIso.get(iso) || DOW_BY_JS_DAY[isoToDate(iso).getDay()] }));
+}
+
+// Week format, regular semester: odd/even lanes
+function modelFromWeeks(data) {
+  const sem = data.semester;
+  const groups = orderGroups(sem.semester_groups, new Map(data.schedule.map((s) => [s.group.id, s.group])));
+  const days = sem.semester_days.map((dow) => ({ key: dow, dow, iso: null }));
+  const m = newModel(sem, sem.semester_classes, groups, WEEK_LANES, days);
+  for (const s of data.schedule) {
+    for (const d of s.days) {
+      for (const c of d.classes) {
+        for (const lane of WEEK_LANES) addLesson(m, s.group, d.day, c.class.id, lane, c.weeks[lane]);
+      }
+    }
+  }
+  return m;
+}
+
+// Week format, short semester (session): expand "day + week parity" into concrete dates
+function modelFromWeeksByDate(data) {
+  const sem = data.semester;
+  const start = parseApiDate(sem.startDay);
+  const end = parseApiDate(sem.endDay);
+  const allowed = new Set(sem.semester_days);
+  const isoDates = [];
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    if (allowed.has(DOW_BY_JS_DAY[d.getDay()])) isoDates.push(toIso(d));
+  }
+  const groups = orderGroups(sem.semester_groups, new Map(data.schedule.map((s) => [s.group.id, s.group])));
+  const m = newModel(sem, sem.semester_classes, groups, DATE_LANES, dateDays(isoDates));
+  for (const day of m.days) {
+    const parity = parityOf(weekNumber(start, isoToDate(day.iso)));
+    for (const s of data.schedule) {
+      const d = s.days.find((x) => x.day === day.dow);
+      if (d) for (const c of d.classes) addLesson(m, s.group, day.key, c.class.id, 'one', c.weeks[parity]);
+    }
+  }
+  return m;
+}
+
+// Date format (scheduledByDate): a flat list of dated items
+function modelFromDates(data) {
+  const sem = data.semester;
+  const seen = new Map(data.items.map((i) => [i.group.id, i.group]));
+  // every listed group gets a column, even one without lessons
+  for (const g of data.groups || []) if (!seen.has(g.id)) seen.set(g.id, g);
+  const groups = orderGroups(data.groups, seen);
+  const m = newModel(sem, data.periods || sem.semester_classes, groups, DATE_LANES,
+    dateDays(data.dates, new Map(data.items.map((i) => [i.date, i.dayOfWeek]))));
+  for (const i of data.items) addLesson(m, i.group, i.date, i.period.id, 'one', i.lesson);
+  return m;
+}
+
+const isWeekFormat = (data) => data && data.semester && Array.isArray(data.schedule)
+  && data.schedule.every((s) => Array.isArray(s.days)
+    && s.days.every((d) => Array.isArray(d.classes) && d.classes.every((c) => c.weeks && 'odd' in c.weeks && 'even' in c.weeks)));
+
+const isDateFormat = (data) => data && data.semester && Array.isArray(data.dates) && Array.isArray(data.items)
+  && data.items.every((i) => i.date && i.period && i.group);
+
+function buildModel(data) {
+  let m = null;
+  if (isDateFormat(data)) m = modelFromDates(data);
+  else if (isWeekFormat(data)) m = isShortSemester(data.semester) ? modelFromWeeksByDate(data) : modelFromWeeks(data);
+  if (!m) return null;
+
+  // "now" relative to this semester
+  const today = startOfToday();
+  m.todayIso = toIso(today);
+  m.todayDow = DOW_BY_JS_DAY[today.getDay()];
+  m.running = today >= parseApiDate(m.semester.startDay) && today <= parseApiDate(m.semester.endDay);
+  m.week = !m.byDate && m.running ? weekNumber(parseApiDate(m.semester.startDay), today) : null;
+  m.parity = m.week ? parityOf(m.week) : null;
+  return m;
+}
+
+/* ---------- model queries ---------- */
+
+const slotOf = (groupId, day, p) => model.groupSlots.get(groupId).get(day.key + '|' + p.id) || {};
+
+const sortedTeachers = () => [...model.teachers.values()]
+  .sort((a, b) => fullName(a.teacher).localeCompare(fullName(b.teacher), 'uk'));
+
+const visibleGroups = () => model.groups.filter((g) => state.course === 'all' || courseOf(g.title) === state.course);
+
+// Row classes: today, and (dated semester) past days while it is running
+function dayCls(day) {
+  const cls = [];
+  if (model.byDate ? day.iso === model.todayIso : model.running && day.dow === model.todayDow) cls.push('today');
+  if (model.byDate && model.running && day.iso < model.todayIso) cls.push('past');
+  return cls;
+}
+
+// The lane of the other (next) week is muted
+const laneCls = (lane) => (model.parity && lane !== model.parity ? 'next' : '');
+
+const dayLabel = (day, sep) => DAY_NAMES[day.dow] + (day.iso ? sep + ddmm(day.iso) : '');
+
+/* ---------- lesson identity (merging lanes and adjacent groups) ---------- */
+
+// scheduleId is unique per group, so it must NOT take part in equality
+const lessonKey = (l) => (l ? [l.subjectForSite, l.lessonType, l.teacher?.id, l.room?.id ?? l.room, l.elective, l.linkToMeeting].join('|') : '');
+
+// Teacher slot: several groups may share one lesson -> one card listing the groups
+function mergeTeacherLessons(list) {
+  const merged = new Map();
+  for (const l of list || []) {
+    const k = [l.subjectForSite, l.lessonType, l.room?.id ?? l.room, l.elective, l.linkToMeeting].join('|');
+    if (!merged.has(k)) merged.set(k, { ...l, groups: [] });
+    merged.get(k).groups.push(l.group);
+  }
+  return [...merged.values()];
+}
+const teacherKey = (list) => (list || []).map((l) => lessonKey(l) + '#' + l.groups.map((g) => g.id).join(',')).sort().join('||');
+
+/* =====================================================================
+   Rendering
+   ===================================================================== */
+
+function card(l, { showGroups = false } = {}) {
+  const type = LESSON_TYPES[l.lessonType] || { label: l.lessonType, cls: 'other' };
+  const link = (param, id, text) => `<a href="?semester=${state.semesterId}&amp;${param}=${id}" data-${param}="${id}">${esc(text)}</a>`;
+  let who = '';
+  if (showGroups) who = `<div class="who">${l.groups.map((g) => link('group', g.id, g.title)).join(', ')}</div>`;
+  else if (l.teacher) who = `<div class="who" title="${esc(fullName(l.teacher))}">${link('teacher', l.teacher.id, shortName(l.teacher))}</div>`;
+  const room = typeof l.room === 'string' ? l.room : l.room?.name ?? '';
+  const meet = /^https?:\/\//i.test(l.linkToMeeting || '')
+    ? `<a class="meet" href="${esc(l.linkToMeeting)}" target="_blank" rel="noopener" title="Посилання на заняття">🔗</a>` : '';
+  const search = [l.subjectForSite, l.teacher ? fullName(l.teacher) : ''].join(' ').toLowerCase();
+  return `<div class="card t-${type.cls}${l.elective ? ' elective' : ''}" data-search="${esc(search)}"${l.elective ? ' title="Вибіркова дисципліна"' : ''}>
+    <div class="subj">${esc(l.subjectForSite)}</div>
+    <span class="badge">${esc(type.label)}</span>
+    ${who}
+    <div class="room">${esc(room)}${meet}</div>
+  </div>`;
+}
+
+// wrapped in a div so the cell's content height can be measured from its children
+const pairCell = (p) => `<div><b>${esc(p.class_name)}</b>${esc(p.startTime)}<br>${esc(p.endTime)}</div>`;
+
+const attrs = (cls, extra = '') => (cls.length ? ` class="${cls.join(' ')}"` : '') + extra;
+
+/* ---------- group / teacher view: days × periods, one column per lane ---------- */
+
+function laneTable(getSlot, key, render) {
+  // on a phone show one week at a time, with a switch
+  const lanes = NARROW.matches && model.lanes.length > 1 ? [state.parity] : model.lanes;
+  let head;
+  if (lanes.length < model.lanes.length) {
+    const btn = (p) => `<button data-parity="${p}" class="${state.parity === p ? 'active' : ''}">${LANE_LABELS[p]}${model.parity === p ? ' •' : ''}</button>`;
+    head = `<th><div class="tabs parity">${model.lanes.map(btn).join('')}</div></th>`;
+  } else {
+    head = lanes.map((l) => `<th class="${laneCls(l)}">${LANE_TITLES[l]}${model.parity === l ? ' (поточний)' : ''}</th>`).join('');
+  }
+  let html = `<div class="scroll"><table class="lane-table${lanes.length === 1 ? ' one-lane' : ''}"><thead><tr>`
+    + `<th>${model.byDate ? 'Дата' : 'День'}</th><th>Пара</th>${head}</tr></thead><tbody>`;
+
+  for (const day of model.days) {
+    const cls = dayCls(day);
+    const label = dayLabel(day, '<br>');
+    const busy = model.periods.map((p, i) => (lanes.some((l) => key(getSlot(day, p)[l])) ? i : -1)).filter((i) => i >= 0);
+    if (!busy.length) {
+      html += `<tr${attrs(cls)}><td class="day">${label}</td><td class="pair"></td><td colspan="${lanes.length}" class="no-lessons">Пар немає</td></tr>`;
+      continue;
+    }
+    // keep gaps (вікна) between the first and the last lesson of the day
+    const rows = model.periods.slice(busy[0], busy[busy.length - 1] + 1);
+    rows.forEach((p, i) => {
+      const slot = getSlot(day, p);
+      const keys = lanes.map((l) => key(slot[l]));
+      let cells;
+      if (keys.every((k) => k === keys[0])) {
+        // identical in every lane (or empty) -> one cell across the lanes
+        const span = lanes.length > 1 ? ` colspan="${lanes.length}"` : '';
+        cells = keys[0] ? `<td class="slot"${span}>${render(slot[lanes[0]])}</td>` : `<td class="slot empty"${span}></td>`;
+      } else {
+        cells = lanes.map((l, j) => (keys[j] ? `<td class="slot ${laneCls(l)}">${render(slot[l])}</td>` : '<td class="slot empty"></td>')).join('');
+      }
+      html += `<tr${attrs(cls)}>${i === 0 ? `<td class="day" rowspan="${rows.length}">${label}</td>` : ''}<td class="pair">${pairCell(p)}</td>${cells}</tr>`;
+    });
+  }
+  return html + '</tbody></table></div>';
+}
+
+function renderGroup() {
+  if (!model.groups.length) return '<p class="no-lessons">У цьому семестрі немає груп.</p>';
+  const g = model.groups.find((x) => x.id === state.groupId) || model.groups[0];
+  state.groupId = g.id;
+  return `<p class="view-title">Група ${esc(g.title)}</p>`
+    + laneTable((day, p) => slotOf(g.id, day, p), lessonKey, (l) => card(l));
+}
+
+function renderTeacher() {
+  if (!model.teachers.size) return '<p class="no-lessons">У цьому семестрі немає занять.</p>';
+  const entry = model.teachers.get(state.teacherId) || sortedTeachers()[0];
+  const t = entry.teacher;
+  state.teacherId = t.id;
+  const getSlot = (day, p) => {
+    const raw = entry.slots.get(day.key + '|' + p.id) || {};
+    return Object.fromEntries(model.lanes.map((l) => [l, mergeTeacherLessons(raw[l])]));
+  };
+  const render = (list) => list.map((l) => card(l, { showGroups: true })).join('');
+  return `<p class="view-title">${esc(t.position || '')} ${esc(fullName(t))}${t.department ? ` <span class="sub">· кафедра ${esc(t.department.name)}</span>` : ''}</p>`
+    + laneTable(getSlot, teacherKey, render);
+}
+
+/* ---------- full view: days × periods (× lanes) as rows, groups as columns ---------- */
+
+// Cells of one group (or of several merged groups) for every lane row of a period
+function fullCells(slot, span) {
+  const n = model.lanes.length;
+  const colspan = span > 1 ? ` colspan="${span}"` : '';
+  const keys = model.lanes.map((l) => lessonKey(slot[l]));
+  if (keys.every((k) => k === keys[0])) {
+    // the same lesson in every lane (or none): one cell spanning all lane rows
+    const rowspan = n > 1 ? ` rowspan="${n}"` : '';
+    const td = keys[0] ? `<td class="slot"${rowspan}${colspan}>${card(slot[model.lanes[0]])}</td>` : `<td class="slot empty"${rowspan}${colspan}></td>`;
+    return [td, ...Array(n - 1).fill('')];
+  }
+  return model.lanes.map((l, i) => (keys[i]
+    ? `<td class="slot lane-${l} ${laneCls(l)}"${colspan}>${card(slot[l])}</td>`
+    : `<td class="slot empty lane-${l}"${colspan}></td>`));
+}
+
+function weekLabelCell(lane) {
+  return `<td class="wk-label${model.parity === lane ? ' current' : ''}"><div class="vert">${LANE_LABELS[lane]}</div></td>`;
+}
+
+function renderFull() {
+  const gs = visibleGroups();
+  const multi = model.lanes.length > 1;
+  const slotKey = (slot) => model.lanes.map((l) => lessonKey(slot[l])).join('#').replace(/^#+$/, '');
+  let html = `<div class="scroll"><table class="full"><thead><tr><th class="c-day"></th><th class="c-pair">Пара</th>${multi ? '<th class="c-wk"></th>' : ''}`
+    + gs.map((g) => `<th><a href="?semester=${state.semesterId}&amp;group=${g.id}" data-group="${g.id}">${esc(g.title)}</a></th>`).join('')
+    + '</tr></thead><tbody>';
+
+  for (const day of model.days) {
+    const rows = model.periods.filter((p) => gs.some((g) => slotKey(slotOf(g.id, day, p))));
+    if (!rows.length) continue;
+    const cls = dayCls(day);
+    rows.forEach((p, i) => {
+      const laneRows = model.lanes.map(() => '');
+      // merge adjacent groups that share exactly the same lesson(s), like the main app does
+      for (let j = 0; j < gs.length;) {
+        const slot = slotOf(gs[j].id, day, p);
+        const k = slotKey(slot);
+        let span = 1;
+        while (k && j + span < gs.length && slotKey(slotOf(gs[j + span].id, day, p)) === k) span++;
+        fullCells(slot, span).forEach((td, n) => { laneRows[n] += td; });
+        j += span;
+      }
+      const dayCell = i === 0 ? `<td class="day" rowspan="${rows.length * model.lanes.length}"><div class="vert">${dayLabel(day, ' ')}</div></td>` : '';
+      const pair = `<td class="pair"${multi ? ` rowspan="${model.lanes.length}"` : ''}>${pairCell(p)}</td>`;
+      model.lanes.forEach((lane, n) => {
+        const rowCls = multi && n === 0 ? [...cls, 'lane-first'] : cls;
+        html += `<tr${attrs(rowCls)}>${n === 0 ? dayCell + pair : ''}${multi ? weekLabelCell(lane) : ''}${laneRows[n]}</tr>`;
+      });
+    });
+  }
+  return html + '</tbody></table></div>';
+}
+
+function legend() {
+  const types = Object.entries(LESSON_TYPES).filter(([k]) => model.presentTypes.has(k))
+    .map(([, t]) => `<span class="t-${t.cls}"><span class="sw"></span>${t.label}</span>`).join('');
+  let muted = '';
+  if (model.parity) muted = 'Приглушено — наступний тиждень';
+  else if (model.byDate && model.running) muted = 'Приглушено — минулі дні';
+  return `<div class="legend">${types}<span><span class="fold"></span>Вибіркова дисципліна</span>`
+    + (muted ? `<span><span class="sw mutedsw"></span>${muted}</span>` : '') + '</div>';
+}
+
+/* ---------- layout pass after rendering ---------- */
+
+// Make the lane rows of each period equally tall (enough for the biggest lane
+// cell, and together enough for any cell spanning all lanes), then let every
+// single card fill its cell, so a lesson held every week visibly covers both
+// weeks. Done in JS because percentage heights in table cells are unreliable.
+function layoutTable() {
+  const cards = [...document.querySelectorAll('#main td.slot > .card:only-child')];
+  for (const c of cards) c.style.minHeight = '';
+
+  const groupsOfRows = [...document.querySelectorAll('#main tr.lane-first')].map((first) => {
+    const rows = [first];
+    for (let n = 1; n < model.lanes.length; n++) rows.push(rows[n - 1].nextElementSibling);
+    return rows;
+  });
+  for (const rows of groupsOfRows) for (const r of rows) r.style.height = '';
+  const contentHeight = (td) => {
+    let h = [...td.children].reduce((sum, el) => sum + el.offsetHeight, 0) + 1; // + bottom border
+    if (!td.classList.contains('slot')) {
+      const cs = getComputedStyle(td);
+      h += parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+    }
+    return h;
+  };
+  const heights = groupsOfRows.map((rows) => {
+    let lane = 0, all = 0;
+    for (const td of rows.flatMap((r) => [...r.cells])) {
+      if (td.rowSpan > rows.length) continue; // the day cell spans the whole day
+      const h = contentHeight(td);
+      if (td.rowSpan === rows.length) all = Math.max(all, h);
+      else lane = Math.max(lane, h);
+    }
+    return Math.ceil(Math.max(lane, all / rows.length));
+  });
+  groupsOfRows.forEach((rows, i) => { for (const r of rows) r.style.height = heights[i] + 'px'; });
+
+  const targets = cards.map((c) => c.parentElement.clientHeight);
+  cards.forEach((c, i) => { c.style.minHeight = targets[i] + 'px'; });
+}
+
+/* ---------- state <-> URL (same ?semester=..&group=.. shape as the main app) ---------- */
+
+function readUrl() {
+  const q = new URLSearchParams(location.search);
+  const num = (v) => (v && /^\d+$/.test(v) ? Number(v) : null);
+  state.semesterId = num(q.get('semester'));
+  state.groupId = num(q.get('group'));
+  state.teacherId = num(q.get('teacher'));
+  state.course = q.get('course') || 'all';
+  state.view = state.teacherId != null ? 'teacher' : state.groupId != null ? 'group' : 'full';
+}
+
+function writeUrl(push) {
+  const q = new URLSearchParams();
+  if (state.semesterId != null) {
+    q.set('semester', state.semesterId);
+    if (state.view === 'group') q.set('group', state.groupId);
+    else if (state.view === 'teacher') q.set('teacher', state.teacherId);
+    else if (state.course !== 'all') q.set('course', state.course);
+  }
+  const url = location.pathname + (q.toString() ? '?' + q : '');
+  if (url !== location.pathname + location.search) history[push ? 'pushState' : 'replaceState'](null, '', url);
+}
+
+/* ---------- page states ---------- */
+
+function syncHeaderHeight() {
+  document.documentElement.style.setProperty('--hdr', $('hdr').offsetHeight + 'px');
+}
+
+function setHeader({ title = '', dates = '', week = '', snapshot = '', back = false } = {}) {
+  $('semTitle').textContent = title;
+  $('semDates').textContent = dates;
+  $('week').textContent = week;
+  $('snapshot').textContent = snapshot;
+  $('back').hidden = !back;
+}
+
+// "back to the list" inside a message box, so the way out is next to the problem
+const backLink = () => (semesterList.length > 1
+  ? '<p><a class="back" href="./" data-back="1">← До списку семестрів</a></p>' : '');
+
+function showMessage(html) {
+  $('controls').hidden = true;
+  $('main').innerHTML = `<div class="loader">${html}</div>`;
+  syncHeaderHeight();
+}
+
+function applySearch() {
+  const q = state.query.trim().toLowerCase();
+  for (const el of document.querySelectorAll('#main .card')) {
+    const hit = !!q && el.dataset.search.includes(q);
+    el.classList.toggle('hit', hit);
+    el.classList.toggle('dim', !!q && !hit);
+  }
+}
+
+function render(push = false) {
+  for (const b of $('tabs').children) b.classList.toggle('active', b.dataset.view === state.view);
+  $('groupSelect').hidden = state.view !== 'group';
+  $('teacherSelect').hidden = state.view !== 'teacher';
+  $('courseChips').hidden = state.view !== 'full';
+  for (const b of $('courseChips').children) b.classList.toggle('active', b.dataset.course === state.course);
+
+  const body = state.view === 'group' ? renderGroup() : state.view === 'teacher' ? renderTeacher() : renderFull();
+  $('main').innerHTML = body + legend();
+  $('groupSelect').value = state.groupId ?? '';
+  $('teacherSelect').value = state.teacherId ?? '';
+  applySearch();
+  writeUrl(push);
+  syncHeaderHeight();
+  layoutTable();
+}
+
+// Start page: the semesters that have not ended yet
+function showSemesterList(push = false) {
+  state.semesterId = null;
+  model = null;
+  writeUrl(push);
+  setHeader();
+  $('controls').hidden = true;
+  const today = startOfToday();
+  const list = semesterList
+    .filter((s) => parseApiDate(s.endDay) >= today)
+    .sort((a, b) => parseApiDate(a.startDay) - parseApiDate(b.startDay));
+  if (!list.length) { showMessage('<p>Немає семестрів, які ще тривають.</p>'); return; }
+  const status = (s) => (parseApiDate(s.startDay) <= today
+    ? '<span class="status running">триває</span>'
+    : `<span class="status">починається ${esc(s.startDay.slice(0, 5).replace('/', '.'))}</span>`);
+  $('main').innerHTML = '<div class="sem-list"><h2>Оберіть семестр</h2>'
+    + list.map((s) => `<a class="sem-item" href="?semester=${s.id}" data-semester="${s.id}">
+        <span class="name">${esc(s.description)}</span><span class="sub">${esc(apiDatesText(s))}</span>${status(s)}</a>`).join('')
+    + '</div>';
+  syncHeaderHeight();
+}
+
+async function fetchJson(url) {
+  const res = await fetch(url, { cache: 'no-cache' });
+  if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`);
+  return { json: await res.json(), modified: res.headers.get('Last-Modified') };
+}
+
+async function loadSemester(id) {
+  if (!loaded.has(id)) {
+    const { json, modified } = await fetchJson(fullUrl(id));
+    loaded.set(id, { data: json, snapshot: json.generatedAt || modified });
+  }
+  return loaded.get(id);
+}
+
+function fillControls() {
+  $('groupSelect').innerHTML = model.groups.map((g) => `<option value="${g.id}">${esc(g.title)}</option>`).join('');
+  $('teacherSelect').innerHTML = sortedTeachers()
+    .map(({ teacher: t }) => `<option value="${t.id}">${esc(fullName(t))}</option>`).join('');
+  const courses = [...new Set(model.groups.map((g) => courseOf(g.title)))].sort();
+  $('courseChips').innerHTML = '<button data-course="all">Усі</button>'
+    + courses.map((c) => `<button data-course="${c}">${c === 'other' ? 'Інші' : c + ' курс'}</button>`).join('');
+}
+
+async function showSemester(id, push = false) {
+  const meta = semesterList.find((s) => s.id === id);
+  const name = meta ? meta.description : String(id);
+  const back = semesterList.length > 1;
+  state.semesterId = id;
+  setHeader({ title: name, dates: meta ? apiDatesText(meta) : '', back });
+  let entry;
+  try {
+    entry = await loadSemester(id);
+  } catch (err) {
+    writeUrl(push);
+    showMessage(`<p>Для семестру «${esc(name)}» немає резервної копії.</p><p class="sub">${esc(err.message)}</p>
+      <p>Можна обрати файл розкладу цього семестру вручну (<code>${esc(fullUrl(id))}</code>):</p>
+      <input type="file" id="semesterFile" accept=".json,application/json">${backLink()}`);
+    $('semesterFile').addEventListener('change', (e) => pickSemesterFile(id, e.target.files[0]));
+    return;
+  }
+  if (state.semesterId !== id) return; // switched again while loading
+  const m = buildModel(entry.data);
+  if (!m) {
+    writeUrl(push);
+    showMessage(`<p>Формат даних семестру «${esc(name)}» не розпізнано.</p>${backLink()}`);
+    return;
+  }
+  model = m;
+  if (model.parity) state.parity = model.parity;
+  const snap = entry.snapshot ? new Date(entry.snapshot) : null;
+  setHeader({
+    title: model.semester.description,
+    dates: apiDatesText(model.semester),
+    week: model.byDate ? 'Розклад за датами'
+      : model.week ? `Зараз ${model.week}-й тиждень — ${LANE_LABELS[model.parity]}` : '',
+    snapshot: snap && !isNaN(snap) ? ', дані станом на ' + snap.toLocaleString('uk-UA', { dateStyle: 'medium', timeStyle: 'short' }) : '',
+    back,
+  });
+
+  fillControls();
+  // a group / teacher / course from another semester may not exist here
+  if (state.view === 'group' && !model.groupSlots.has(state.groupId)) state.view = 'full';
+  if (state.view === 'teacher' && !model.teachers.has(state.teacherId)) state.view = 'full';
+  if (state.course !== 'all' && !model.groups.some((g) => courseOf(g.title) === state.course)) state.course = 'all';
+  $('controls').hidden = false;
+  render(push);
+}
+
+// A semester file picked by hand (e.g. the page is opened via file:// and fetch is blocked)
+async function pickSemesterFile(id, file) {
+  if (!file) return;
+  let json;
+  try {
+    json = JSON.parse(await file.text());
+  } catch (ex) {
+    alert('Некоректний файл: ' + ex.message);
+    return;
+  }
+  if (!json || !json.semester || !buildModel(json)) {
+    alert('У файлі немає розкладу семестру.');
+    return;
+  }
+  if (json.semester.id !== id) {
+    alert(`У файлі семестр «${json.semester.description}» (id ${json.semester.id}), а потрібен id ${id}.`);
+    return;
+  }
+  loaded.set(id, { data: json, snapshot: json.generatedAt || file.lastModified });
+  showSemester(id);
+}
+
+// Show what the URL asks for: a semester, or the list
+function route() {
+  readUrl();
+  if (state.semesterId != null) showSemester(state.semesterId);
+  else if (semesterList.length === 1) showSemester(semesterList[0].id);
+  else showSemesterList();
+}
+
+/* ---------- controls ---------- */
+
+function initControls() {
+  $('back').addEventListener('click', (e) => {
+    if (e.ctrlKey || e.metaKey) return;
+    e.preventDefault();
+    showSemesterList(true);
+  });
+  $('tabs').addEventListener('click', (e) => {
+    const v = e.target.dataset.view;
+    if (!v || v === state.view) return;
+    state.view = v;
+    if (v === 'group' && !model.groupSlots.has(state.groupId)) state.groupId = model.groups[0].id;
+    if (v === 'teacher' && !model.teachers.has(state.teacherId)) state.teacherId = sortedTeachers()[0].teacher.id;
+    render(true);
+  });
+  $('groupSelect').addEventListener('change', (e) => { state.groupId = Number(e.target.value); render(true); });
+  $('teacherSelect').addEventListener('change', (e) => { state.teacherId = Number(e.target.value); render(true); });
+  $('courseChips').addEventListener('click', (e) => {
+    const c = e.target.dataset.course;
+    if (c) { state.course = c; render(true); }
+  });
+  $('search').addEventListener('input', (e) => { state.query = e.target.value; applySearch(); });
+
+  // links inside the page navigate without reloading
+  $('main').addEventListener('click', (e) => {
+    const pb = e.target.closest('button[data-parity]');
+    if (pb) { state.parity = pb.dataset.parity; render(); return; }
+    const a = e.target.closest('a[data-back], a[data-semester], a[data-group], a[data-teacher]');
+    if (!a || e.ctrlKey || e.metaKey) return;
+    e.preventDefault();
+    if (a.dataset.back) { showSemesterList(true); return; }
+    if (a.dataset.semester) {
+      state.view = 'full';
+      state.course = 'all';
+      showSemester(Number(a.dataset.semester), true);
+      return;
+    }
+    if (a.dataset.group) { state.view = 'group'; state.groupId = Number(a.dataset.group); }
+    else { state.view = 'teacher'; state.teacherId = Number(a.dataset.teacher); }
+    render(true);
+    window.scrollTo(0, 0);
+  });
+
+  window.addEventListener('popstate', route);
+  let frame = 0;
+  window.addEventListener('resize', () => {
+    cancelAnimationFrame(frame);
+    frame = requestAnimationFrame(() => {
+      syncHeaderHeight();
+      if (model && !$('controls').hidden) layoutTable();
+    });
+  });
+  NARROW.addEventListener('change', () => { if (model && !$('controls').hidden) render(); });
+}
+
+/* ---------- start ---------- */
+
+function start() {
+  initControls();
+  route();
+}
+
+// When opened via file:// fetch is blocked, so let the user pick the JSON files by hand
+function showFilePicker(err) {
+  showMessage(`<p>Не вдалося завантажити дані (${esc(err.message || err)}).</p>
+    <p>Оберіть файли розкладу вручну: <code>semesters.json</code> і <code>full-&lt;id&gt;.json</code> (або один <code>full.json</code>):</p>
+    <input type="file" id="file" accept=".json,application/json" multiple>`);
+  $('file').addEventListener('change', async (e) => {
+    try {
+      let list = null;
+      for (const f of e.target.files) {
+        const json = JSON.parse(await f.text());
+        if (Array.isArray(json)) list = json;
+        else if (json && json.semester) loaded.set(json.semester.id, { data: json, snapshot: json.generatedAt || f.lastModified });
+      }
+      semesterList = list ? list.filter((s) => !s.disable) : [...loaded.values()].map((v) => v.data.semester);
+      start();
+    } catch (ex) {
+      alert('Некоректний файл: ' + ex.message);
+    }
+  });
+}
+
+(async function load() {
+  try {
+    semesterList = (await fetchJson(SEMESTERS_URL)).json.filter((s) => !s.disable);
+  } catch (listErr) {
+    try {
+      const { json, modified } = await fetchJson(SINGLE_URL);
+      semesterList = [json.semester];
+      loaded.set(json.semester.id, { data: json, snapshot: json.generatedAt || modified });
+    } catch (err) {
+      showFilePicker(listErr);
+      return;
+    }
+  }
+  start();
+})();
+</script>
+</body>
+</html>
