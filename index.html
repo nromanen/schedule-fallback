@@ -7,7 +7,7 @@
 <style>
   :root {
     --bg: #f5f6f8; --surface: #fff; --text: #1f2328; --muted: #656d76; --line: #dde1e6;
-    --head: #eef0f3; --accent: #2563eb; --today: #f0f5ff;
+    --head: #eef0f3; --accent: #2563eb; --today: #e6eeff;
     --lecture: #2563eb; --practical: #16a34a; --laboratory: #d97706; --exam: #dc2626; --credit: #0891b2; --other: #6b7280;
   }
   * { box-sizing: border-box; }
@@ -51,6 +51,15 @@
   .sem-item .status { font-size: 12px; color: var(--muted); }
   .sem-item .status.running { color: var(--practical); font-weight: 600; }
 
+  /* "choose your group" (phones) */
+  .picker { max-width: 640px; margin: 0 auto; }
+  .picker h2 { font-size: 16px; margin: 4px 0; }
+  .picker h3 { font-size: 13px; color: var(--muted); margin: 14px 0 6px; font-weight: 600; }
+  .pick-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px; }
+  .pick-btn { display: block; text-align: center; padding: 12px 6px; background: var(--surface); border: 1px solid var(--line);
+    border-radius: 8px; color: inherit; text-decoration: none; font-weight: 600; }
+  .pick-btn:active, .pick-btn:hover { border-color: var(--accent); }
+
   /* ---------- tables ---------- */
   .scroll { overflow: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; max-height: calc(100vh - var(--hdr, 140px) - 80px); }
   table { border-collapse: separate; border-spacing: 0; }
@@ -61,20 +70,32 @@
   .pair { white-space: nowrap; color: var(--muted); font-size: 12px; text-align: center; background: var(--surface); }
   .pair b { display: block; color: var(--text); font-size: 14px; }
   .no-lessons { color: var(--muted); font-style: italic; }
+  /* a stronger line where a new day starts (not under the header) */
+  tbody tr.day-start:not(:first-child) > td { border-top: 2px solid #b4bcc8; }
   td.slot { padding: 0; }
   td.empty { background: repeating-linear-gradient(135deg, transparent 0 6px, #fafbfc 6px 12px); }
   /* today; muted = the other (next) week, or past days of a dated semester */
-  tr.today .pair, tr.today .day { background: var(--today); }
+  /* today: the whole row is tinted (sticky columns and cards included), the day
+     cell gets an accent bar and a "сьогодні" tag */
+  tr.today > td { background-color: var(--today) !important; }
+  tr.today .card { background: transparent; }
+  tr.today > td.day { box-shadow: inset 4px 0 0 var(--accent); color: var(--text); }
+  .today-tag { display: block; color: var(--accent); font-size: 11px; font-weight: 600; }
+  .full .vert .today-tag { display: inline; margin-top: 4px; }
   td.slot.next > *, tr.past td.slot > * { opacity: .45; }
   tr.past .day, tr.past .pair { color: var(--muted); }
 
   /* group / teacher table: one column per lane (odd | even, or a single one) */
-  table.lane-table { width: 100%; }
-  .lane-table td.slot { width: 50%; min-width: 170px; }
-  .lane-table.one-lane td.slot { width: 100%; } /* day + pair columns shrink to content */
+  /* fixed layout from <colgroup>: day and pair columns stay narrow and the lanes
+     share the rest equally, whatever cells (split / merged / empty) the table has */
+  table.lane-table { width: 100%; table-layout: fixed; }
+  .lane-table col.c-day { width: 108px; }
+  .lane-table col.c-pair { width: 64px; }
+  .lane-table .day { white-space: normal; }
   @media (max-width: 700px) {
     header, main { padding-left: 10px; padding-right: 10px; }
-    .lane-table td.slot { width: auto; min-width: 0; }
+    .lane-table col.c-day { width: 84px; }
+    .lane-table col.c-pair { width: 56px; }
     .lane-table .day { font-size: 12px; }
   }
 
@@ -98,6 +119,13 @@
   .card + .card { border-top: 1px solid var(--line); }
   .card.dim { opacity: .2; }
   .card.hit { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .card.hit.current { outline-width: 3px; background: #eef4ff; }
+  /* a match is always fully visible, even in a muted (past / next-week) cell */
+  #main .card.hit { opacity: 1; }
+  .search-info { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+  .search-info button { font: inherit; border: 1px solid var(--line); background: var(--surface); border-radius: 6px; padding: 2px 8px; cursor: pointer; color: inherit; }
+  .search-info .none { color: var(--exam); }
+  .search-info a { color: var(--accent); }
   .t-lecture { --c: var(--lecture); } .t-practical { --c: var(--practical); } .t-laboratory { --c: var(--laboratory); }
   .t-exam { --c: var(--exam); } .t-credit { --c: var(--credit); }
   .subj { font-weight: 600; }
@@ -136,6 +164,7 @@
     <select id="teacherSelect" aria-label="Викладач"></select>
     <div class="chips" id="courseChips"></div>
     <input type="search" id="search" placeholder="Пошук: предмет або викладач" size="28">
+    <span class="search-info" id="searchInfo" hidden></span>
   </div>
 </header>
 <main id="main"></main>
@@ -181,7 +210,7 @@ const LANE_LABELS = { odd: 'непарний', even: 'парний' };
 
 const NARROW = window.matchMedia('(max-width: 700px)');
 
-const state = { semesterId: null, view: 'full', groupId: null, teacherId: null, course: 'all', query: '', parity: 'odd' };
+const state = { semesterId: null, urlView: false, view: 'full', groupId: null, teacherId: null, course: 'all', query: '', parity: 'odd' };
 let semesterList = [];      // semesters known to the page (disable:false)
 const loaded = new Map();   // semesterId -> {data, snapshot}
 let model = null;           // the semester being shown, see buildModel()
@@ -377,7 +406,9 @@ function dayCls(day) {
 // The lane of the other (next) week is muted
 const laneCls = (lane) => (model.parity && lane !== model.parity ? 'next' : '');
 
-const dayLabel = (day, sep) => DAY_NAMES[day.dow] + (day.iso ? sep + ddmm(day.iso) : '');
+const isToday = (day) => dayCls(day).includes('today');
+const dayLabel = (day, sep) => DAY_NAMES[day.dow] + (day.iso ? sep + ddmm(day.iso) : '')
+  + (isToday(day) ? `${sep === ' ' ? ' · ' : ''}<span class="today-tag">сьогодні</span>` : '');
 
 /* ---------- lesson identity (merging lanes and adjacent groups) ---------- */
 
@@ -396,6 +427,9 @@ function mergeTeacherLessons(list) {
 }
 const teacherKey = (list) => (list || []).map((l) => lessonKey(l) + '#' + l.groups.map((g) => g.id).join(',')).sort().join('||');
 
+// Text the search box matches against: subject + teacher's full name
+const searchText = (l) => [l.subjectForSite, l.teacher ? fullName(l.teacher) : ''].join(' ').toLowerCase();
+
 /* =====================================================================
    Rendering
    ===================================================================== */
@@ -409,7 +443,7 @@ function card(l, { showGroups = false } = {}) {
   const room = typeof l.room === 'string' ? l.room : l.room?.name ?? '';
   const meet = /^https?:\/\//i.test(l.linkToMeeting || '')
     ? `<a class="meet" href="${esc(l.linkToMeeting)}" target="_blank" rel="noopener" title="Посилання на заняття">🔗</a>` : '';
-  const search = [l.subjectForSite, l.teacher ? fullName(l.teacher) : ''].join(' ').toLowerCase();
+  const search = searchText(l);
   return `<div class="card t-${type.cls}${l.elective ? ' elective' : ''}" data-search="${esc(search)}"${l.elective ? ' title="Вибіркова дисципліна"' : ''}>
     <div class="subj">${esc(l.subjectForSite)}</div>
     <span class="badge">${esc(type.label)}</span>
@@ -435,7 +469,8 @@ function laneTable(getSlot, key, render) {
   } else {
     head = lanes.map((l) => `<th class="${laneCls(l)}">${LANE_TITLES[l]}${model.parity === l ? ' (поточний)' : ''}</th>`).join('');
   }
-  let html = `<div class="scroll"><table class="lane-table${lanes.length === 1 ? ' one-lane' : ''}"><thead><tr>`
+  const cols = '<colgroup><col class="c-day"><col class="c-pair">' + lanes.map(() => '<col>').join('') + '</colgroup>';
+  let html = `<div class="scroll"><table class="lane-table">${cols}<thead><tr>`
     + `<th>${model.byDate ? 'Дата' : 'День'}</th><th>Пара</th>${head}</tr></thead><tbody>`;
 
   for (const day of model.days) {
@@ -443,7 +478,7 @@ function laneTable(getSlot, key, render) {
     const label = dayLabel(day, '<br>');
     const busy = model.periods.map((p, i) => (lanes.some((l) => key(getSlot(day, p)[l])) ? i : -1)).filter((i) => i >= 0);
     if (!busy.length) {
-      html += `<tr${attrs(cls)}><td class="day">${label}</td><td class="pair"></td><td colspan="${lanes.length}" class="no-lessons">Пар немає</td></tr>`;
+      html += `<tr${attrs([...cls, 'day-start'])}><td class="day">${label}</td><td class="pair"></td><td colspan="${lanes.length}" class="no-lessons">Пар немає</td></tr>`;
       continue;
     }
     // keep gaps (вікна) between the first and the last lesson of the day
@@ -459,7 +494,7 @@ function laneTable(getSlot, key, render) {
       } else {
         cells = lanes.map((l, j) => (keys[j] ? `<td class="slot ${laneCls(l)}">${render(slot[l])}</td>` : '<td class="slot empty"></td>')).join('');
       }
-      html += `<tr${attrs(cls)}>${i === 0 ? `<td class="day" rowspan="${rows.length}">${label}</td>` : ''}<td class="pair">${pairCell(p)}</td>${cells}</tr>`;
+      html += `<tr${attrs(i === 0 ? [...cls, 'day-start'] : cls)}>${i === 0 ? `<td class="day" rowspan="${rows.length}">${label}</td>` : ''}<td class="pair">${pairCell(p)}</td>${cells}</tr>`;
     });
   }
   return html + '</tbody></table></div>';
@@ -535,7 +570,9 @@ function renderFull() {
       const dayCell = i === 0 ? `<td class="day" rowspan="${rows.length * model.lanes.length}"><div class="vert">${dayLabel(day, ' ')}</div></td>` : '';
       const pair = `<td class="pair"${multi ? ` rowspan="${model.lanes.length}"` : ''}>${pairCell(p)}</td>`;
       model.lanes.forEach((lane, n) => {
-        const rowCls = multi && n === 0 ? [...cls, 'lane-first'] : cls;
+        const rowCls = [...cls];
+        if (multi && n === 0) rowCls.push('lane-first');
+        if (i === 0 && n === 0) rowCls.push('day-start');
         html += `<tr${attrs(rowCls)}>${n === 0 ? dayCell + pair : ''}${multi ? weekLabelCell(lane) : ''}${laneRows[n]}</tr>`;
       });
     });
@@ -570,7 +607,7 @@ function layoutTable() {
   });
   for (const rows of groupsOfRows) for (const r of rows) r.style.height = '';
   const contentHeight = (td) => {
-    let h = [...td.children].reduce((sum, el) => sum + el.offsetHeight, 0) + 1; // + bottom border
+    let h = [...td.children].reduce((sum, el) => sum + el.offsetHeight, 0) + td.offsetHeight - td.clientHeight; // + borders
     if (!td.classList.contains('slot')) {
       const cs = getComputedStyle(td);
       h += parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
@@ -602,7 +639,10 @@ function readUrl() {
   state.groupId = num(q.get('group'));
   state.teacherId = num(q.get('teacher'));
   state.course = q.get('course') || 'all';
-  state.view = state.teacherId != null ? 'teacher' : state.groupId != null ? 'group' : 'full';
+  state.view = state.teacherId != null ? 'teacher' : state.groupId != null ? 'group'
+    : q.get('view') === 'pick' ? 'pick' : 'full';
+  // an explicit link (?group= / ?teacher= / ?course= / ?view=pick) always wins over the remembered choice
+  state.urlView = q.has('group') || q.has('teacher') || q.has('course') || q.get('view') === 'pick';
 }
 
 function writeUrl(push) {
@@ -611,10 +651,54 @@ function writeUrl(push) {
     q.set('semester', state.semesterId);
     if (state.view === 'group') q.set('group', state.groupId);
     else if (state.view === 'teacher') q.set('teacher', state.teacherId);
+    else if (state.view === 'pick') q.set('view', 'pick'); // so "back" returns to the chooser
     else if (state.course !== 'all') q.set('course', state.course);
   }
   const url = location.pathname + (q.toString() ? '?' + q : '');
   if (url !== location.pathname + location.search) history[push ? 'pushState' : 'replaceState'](null, '', url);
+}
+
+/* ---------- remembered choice (phones) ----------
+   On a phone the wide "Загальний" table is of little use, so the page opens the
+   group / teacher last chosen on this device, or asks to choose one. Stored per
+   semester in localStorage; storage can be unavailable (private mode), hence try/catch. */
+
+const lastKey = (semesterId) => `schedule-fallback:last:${semesterId}`;
+
+function saveLast() {
+  if (state.view === 'pick') return;
+  const id = state.view === 'group' ? state.groupId : state.view === 'teacher' ? state.teacherId : null;
+  try { localStorage.setItem(lastKey(state.semesterId), JSON.stringify({ view: state.view, id })); } catch (e) { /* not available */ }
+}
+
+function loadLast(semesterId) {
+  try { return JSON.parse(localStorage.getItem(lastKey(semesterId)) || 'null'); } catch (e) { return null; }
+}
+
+// Default view on a phone when the URL did not ask for one
+function applyPhoneDefault() {
+  const last = loadLast(state.semesterId);
+  if (last?.view === 'group' && model.groupSlots.has(last.id)) { state.view = 'group'; state.groupId = last.id; }
+  else if (last?.view === 'teacher' && model.teachers.has(last.id)) { state.view = 'teacher'; state.teacherId = last.id; }
+  else if (last?.view === 'full') state.view = 'full';
+  else state.view = 'pick';
+}
+
+// "Choose your group": big buttons by course, plus a way to the other views
+function renderPicker() {
+  const byCourse = new Map();
+  for (const g of model.groups) {
+    const c = courseOf(g.title);
+    if (!byCourse.has(c)) byCourse.set(c, []);
+    byCourse.get(c).push(g);
+  }
+  const sections = [...byCourse.keys()].sort().map((c) => `<h3>${c === 'other' ? 'Інші' : c + ' курс'}</h3><div class="pick-grid">`
+    + byCourse.get(c).map((g) => `<a class="pick-btn" href="?semester=${state.semesterId}&amp;group=${g.id}" data-group="${g.id}">${esc(g.title)}</a>`).join('')
+    + '</div>').join('');
+  return `<div class="picker"><h2>Оберіть свою групу</h2>
+    <p class="sub">Сторінка запам'ятає вибір на цьому пристрої. Змінити групу можна будь-коли вгорі.</p>
+    ${sections}
+    <p class="sub">Викладачам — вкладка «Викладач» вгорі.</p></div>`;
 }
 
 /* ---------- page states ---------- */
@@ -641,30 +725,115 @@ function showMessage(html) {
   syncHeaderHeight();
 }
 
+/* ---------- search ---------- */
+
+let hits = [];      // matching cards in the current table, in document order
+let hitIndex = -1;  // the "current" one (outlined stronger, scrolled to)
+
+// Matches outside the current table: other courses in the full view, or the
+// rest of the semester in a group / teacher view
+function matchesElsewhere(q) {
+  let groups;
+  if (state.view === 'full') {
+    if (state.course === 'all') return null;
+    groups = model.groups.filter((g) => courseOf(g.title) !== state.course);
+  } else {
+    groups = model.groups;
+  }
+  // no count here: lessons per group/week would not match the card counter shown after the jump
+  const found = groups.some((g) => [...model.groupSlots.get(g.id).values()]
+    .some((slot) => Object.values(slot).some((l) => searchText(l).includes(q))));
+  if (!found) return null;
+  return state.view === 'full'
+    ? { text: 'є на інших курсах — показати всі', action: 'all-courses' }
+    : { text: 'є в загальному розкладі — відкрити', action: 'full-view' };
+}
+
+function showSearchInfo() {
+  const box = $('searchInfo');
+  const q = state.query.trim().toLowerCase();
+  box.hidden = !q;
+  if (!q) return;
+  if (hits.length) {
+    box.innerHTML = `<button data-step="-1" title="Попередній (Shift+Enter)">▲</button>`
+      + `<span>${hitIndex + 1} з ${hits.length}</span>`
+      + `<button data-step="1" title="Наступний (Enter)">▼</button>`;
+    return;
+  }
+  const other = matchesElsewhere(q);
+  box.innerHTML = '<span class="none">Нічого не знайдено</span>'
+    + (other ? ` <a href="#" data-action="${other.action}">${esc(other.text)}</a>` : '');
+}
+
+function focusHit(i, smooth = true) {
+  if (!hits.length) return;
+  hits[hitIndex]?.classList.remove('current');
+  hitIndex = (i + hits.length) % hits.length;
+  const el = hits[hitIndex];
+  el.classList.add('current');
+  el.scrollIntoView({ block: 'center', inline: 'center', behavior: smooth ? 'smooth' : 'auto' });
+  showSearchInfo();
+}
+
+// Mark matching cards, dim the rest, update the counter
 function applySearch() {
   const q = state.query.trim().toLowerCase();
+  hits = [];
+  hitIndex = -1;
   for (const el of document.querySelectorAll('#main .card')) {
     const hit = !!q && el.dataset.search.includes(q);
     el.classList.toggle('hit', hit);
     el.classList.toggle('dim', !!q && !hit);
+    el.classList.remove('current');
+    if (hit) hits.push(el);
   }
+  if (hits.length) {
+    hitIndex = 0;
+    hits[0].classList.add('current');
+  }
+  showSearchInfo();
 }
 
-function render(push = false) {
+// Bring today's first row to the top of the table (below the sticky header)
+function scrollToToday() {
+  const scroller = document.querySelector('#main .scroll');
+  const row = scroller && scroller.querySelector('tr.today');
+  if (!row) return;
+  const headH = scroller.querySelector('thead')?.offsetHeight || 0;
+  scroller.scrollTop += row.getBoundingClientRect().top - scroller.getBoundingClientRect().top - headH;
+}
+
+// push: add a history entry; toToday: scroll to today (when opening something new,
+// not when re-rendering the same table, e.g. switching the week on a phone)
+function render(push = false, toToday = true) {
   for (const b of $('tabs').children) b.classList.toggle('active', b.dataset.view === state.view);
   $('groupSelect').hidden = state.view !== 'group';
   $('teacherSelect').hidden = state.view !== 'teacher';
   $('courseChips').hidden = state.view !== 'full';
+  $('search').hidden = state.view === 'pick'; // nothing to search on the chooser
   for (const b of $('courseChips').children) b.classList.toggle('active', b.dataset.course === state.course);
 
+  if (state.view === 'pick') {
+    $('main').innerHTML = renderPicker();
+    hits = [];
+    $('searchInfo').hidden = true;
+    writeUrl(push);
+    syncHeaderHeight();
+    window.scrollTo(0, 0);
+    return;
+  }
   const body = state.view === 'group' ? renderGroup() : state.view === 'teacher' ? renderTeacher() : renderFull();
   $('main').innerHTML = body + legend();
+  saveLast();
   $('groupSelect').value = state.groupId ?? '';
   $('teacherSelect').value = state.teacherId ?? '';
   applySearch();
   writeUrl(push);
   syncHeaderHeight();
   layoutTable();
+  if (!toToday) return;
+  if (hits.length) focusHit(0, false);
+  else scrollToToday();
 }
 
 // Start page: the semesters that have not ended yet
@@ -753,6 +922,7 @@ async function showSemester(id, push = false) {
   if (state.view === 'group' && !model.groupSlots.has(state.groupId)) state.view = 'full';
   if (state.view === 'teacher' && !model.teachers.has(state.teacherId)) state.view = 'full';
   if (state.course !== 'all' && !model.groups.some((g) => courseOf(g.title) === state.course)) state.course = 'all';
+  if (!state.urlView && NARROW.matches) applyPhoneDefault();
   $('controls').hidden = false;
   render(push);
 }
@@ -809,12 +979,29 @@ function initControls() {
     const c = e.target.dataset.course;
     if (c) { state.course = c; render(true); }
   });
-  $('search').addEventListener('input', (e) => { state.query = e.target.value; applySearch(); });
+  $('search').addEventListener('input', (e) => {
+    state.query = e.target.value;
+    applySearch();
+    if (hits.length) focusHit(0);
+  });
+  $('search').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && hits.length) { e.preventDefault(); focusHit(hitIndex + (e.shiftKey ? -1 : 1)); }
+  });
+  $('searchInfo').addEventListener('click', (e) => {
+    const step = e.target.closest('button[data-step]');
+    if (step) { focusHit(hitIndex + Number(step.dataset.step)); return; }
+    const a = e.target.closest('a[data-action]');
+    if (!a) return;
+    e.preventDefault();
+    if (a.dataset.action === 'all-courses') state.course = 'all';
+    else { state.view = 'full'; state.course = 'all'; }
+    render(true);
+  });
 
   // links inside the page navigate without reloading
   $('main').addEventListener('click', (e) => {
     const pb = e.target.closest('button[data-parity]');
-    if (pb) { state.parity = pb.dataset.parity; render(); return; }
+    if (pb) { state.parity = pb.dataset.parity; render(false, false); return; }
     const a = e.target.closest('a[data-back], a[data-semester], a[data-group], a[data-teacher]');
     if (!a || e.ctrlKey || e.metaKey) return;
     e.preventDefault();
@@ -822,6 +1009,7 @@ function initControls() {
     if (a.dataset.semester) {
       state.view = 'full';
       state.course = 'all';
+      state.urlView = false;
       showSemester(Number(a.dataset.semester), true);
       return;
     }
@@ -840,7 +1028,7 @@ function initControls() {
       if (model && !$('controls').hidden) layoutTable();
     });
   });
-  NARROW.addEventListener('change', () => { if (model && !$('controls').hidden) render(); });
+  NARROW.addEventListener('change', () => { if (model && !$('controls').hidden) render(false, false); });
 }
 
 /* ---------- start ---------- */
