@@ -49,7 +49,7 @@
   .sem-item:hover { border-color: var(--accent); }
   .sem-item .name { font-weight: 600; flex: 1 1 auto; }
   .sem-item .status { font-size: 12px; color: var(--muted); }
-  .sem-item .status.running { color: var(--practical); font-weight: 600; }
+  .sem-item .status.soon { color: #8a4b00; background: #fff1d6; border: 1px solid #f5cf8a; border-radius: 999px; padding: 2px 10px; font-weight: 600; }
 
   /* "choose your group" (phones) */
   .picker { max-width: 640px; margin: 0 auto; }
@@ -235,6 +235,14 @@ const toIso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, 
 const ddmm = (iso) => `${iso.slice(8, 10)}.${iso.slice(5, 7)}`;
 const apiDatesText = (s) => `${s.startDay.replaceAll('/', '.')} – ${s.endDay.replaceAll('/', '.')}`;
 const DAY_MS = 864e5;
+
+// 1 день, 2 дні, 5 днів, 11 днів, 21 день, 22 дні
+function pluralDays(n) {
+  const d10 = n % 10, d100 = n % 100;
+  if (d10 === 1 && d100 !== 11) return 'день';
+  if (d10 >= 2 && d10 <= 4 && (d100 < 12 || d100 > 14)) return 'дні';
+  return 'днів';
+}
 
 function startOfToday() {
   const n = new Date();
@@ -855,9 +863,15 @@ function showSemesterList(push = false) {
     .filter((s) => parseApiDate(s.endDay) >= today)
     .sort((a, b) => parseApiDate(a.startDay) - parseApiDate(b.startDay));
   if (!list.length) { showMessage('<p>Немає семестрів, які ще тривають.</p>'); return; }
-  const status = (s) => (parseApiDate(s.startDay) <= today
-    ? '<span class="status running">триває</span>'
-    : `<span class="status">починається ${esc(s.startDay.slice(0, 5).replace('/', '.'))}</span>`);
+  // only a semester that has not started yet gets a note (a countdown); running is the normal case
+  const status = (s) => {
+    const start = parseApiDate(s.startDay);
+    if (start <= today) return '';
+    const days = Math.round((start - today) / DAY_MS);
+    const date = s.startDay.slice(0, 5).replace('/', '.');
+    const when = days === 1 ? 'уже завтра' : `через ${days} ${pluralDays(days)}`;
+    return `<span class="status soon">⏳ ${when} · з ${esc(date)}</span>`;
+  };
   $('main').innerHTML = '<div class="sem-list"><h2>Оберіть семестр</h2>'
     + list.map((s) => `<a class="sem-item" href="?semester=${s.id}" data-semester="${s.id}">
         <span class="name">${esc(s.description)}</span><span class="sub">${esc(apiDatesText(s))}</span>${status(s)}</a>`).join('')
